@@ -1,0 +1,81 @@
+name: Build Website
+on:
+  schedule:
+    - cron: '0 */24 * * *'
+  watch:
+    types: [started]
+
+jobs:
+  build:
+    name: Build Website
+#    runs-on: ubuntu-18.04
+    runs-on: macos-latest
+    steps:
+      - name: Set up Go 1.14
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.14
+        id: go
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v2
+        with:
+          hugo-version: '0.74.3'
+
+      - name: Check out code into the Go module directory
+        uses: actions/checkout@v2
+
+      - name: Checkout private cve-repo
+        uses: actions/checkout@v2
+        with:
+          repository: cvedb/cve
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: cve-repo
+
+      - name: Checkout private appshield-repo
+        uses: actions/checkout@v2
+        with:
+          repository: cvedb/appshield
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: cve-repo/appshield-repo
+
+      - name: Checkout public vuln-list-repo
+        uses: actions/checkout@v2
+        with:
+          repository: cvedb/vuln-list
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: cve-repo/vuln-list
+
+      - name: Build generator
+        run: make md-clean md-build
+
+      - name: Sync cve-repo with latest changes from generator
+        run: make sync-all
+
+      - name: Build and Generate Markdown pages
+        run: make md-generate
+
+      - name: Generate Hugo website
+        run: make hugo-generate
+
+      - name: Deploy Search Index to MeiliSearch Instance
+        run: |
+          cd cve-repo
+          curl -H X-Meili-API-Key:\ ${{ secrets.ORG_REPO_TOKEN }} -X POST ${{ secrets.SEARCHAPIHOST }}/indexes/content/documents --data @docs/searchindex.json
+#        uses: wei/curl@v1
+#        with:
+#          args: -H X-Meili-API-Key:\ ${{ secrets.ORG_REPO_TOKEN }} -X POST ${{ secrets.SEARCHAPIHOST }}/indexes/content/documents --data @docs/searchindex.json
+
+      - name: Commit files to CVE repo
+        run: |
+          cd cve-repo
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git commit -m "Add changes"
+          git push
+
+#      - name: Push changes
+#        uses: ad-m/github-push-action@master
+#        with:
+#          github_token: ${{ secrets.GITHUB_TOKEN }}
